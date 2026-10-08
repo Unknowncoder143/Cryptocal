@@ -1,0 +1,2081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Polygon Multi-Hop Scanner</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #0b0f17;
+    color: white;
+}
+
+.container {
+    max-width: 850px;
+    margin: auto;
+    padding: 25px;
+}
+
+.card {
+    background: #141b26;
+    padding: 20px;
+    margin-bottom: 18px;
+    border-radius: 14px;
+}
+
+h1 {
+    color: #4f8cff;
+}
+
+input {
+    width: 100%;
+    padding: 12px;
+    box-sizing: border-box;
+    background: #0b0f17;
+    border: 1px solid #39465a;
+    color: white;
+    border-radius: 8px;
+    margin: 10px 0;
+}
+
+button {
+    width: 100%;
+    padding: 13px;
+    border: 0;
+    border-radius: 8px;
+    background: #4f8cff;
+    color: white;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    opacity: 0.85;
+}
+
+.route {
+    text-align: center;
+    font-size: 20px;
+    padding: 15px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    padding: 12px;
+    border-bottom: 1px solid #303b4d;
+}
+
+.green {
+    color: #35d07f;
+}
+
+.red {
+    color: #ff6565;
+}
+
+.gray {
+    color: #9aa4b2;
+}
+
+#status {
+    margin-top: 15px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Polygon Multi-Hop Scanner</h1>
+
+<div class="card">
+
+<h3>Route</h3>
+
+<div class="route">
+    USDT → LINK → AAVE → USDT
+</div>
+
+<label for="startAmount">
+    Starting USDT
+</label>
+
+<input
+    id="startAmount"
+    type="number"
+    value="100"
+    min="0.01"
+    step="0.01"
+>
+
+<button id="scanButton">
+    Check Opportunity
+</button>
+
+<div id="status" class="gray">
+    Ready.
+</div>
+
+</div>
+
+
+<div class="card">
+
+<h2>Route Results</h2>
+
+<table>
+
+<thead>
+<tr>
+    <th>Hop</th>
+    <th>Rate</th>
+    <th>Amount</th>
+</tr>
+</thead>
+
+<tbody id="resultsBody"></tbody>
+
+</table>
+
+</div>
+
+
+<div class="card">
+
+<h2>Result</h2>
+
+<p>
+Starting:
+<strong id="startingResult">-</strong> USDT
+</p>
+
+<p>
+Final:
+<strong id="finalResult">-</strong> USDT
+</p>
+
+<p>
+Gross:
+<strong id="grossResult">-</strong> USDT
+</p>
+
+<p>
+Gas:
+<strong id="gasResult">-</strong> USDT
+</p>
+
+<p>
+Net:
+<strong id="netResult">-</strong> USDT
+</p>
+
+</div>
+
+</div>
+
+
+<script>
+
+/*
+==================================================
+DEMO RATES
+==================================================
+
+These are example rates only.
+
+They are NOT live DEX prices.
+
+Later we can replace these with live
+Polygon DEX quotes.
+*/
+
+const RATES = {
+
+    USDT_TO_LINK: 0.10,
+
+    LINK_TO_AAVE: 0.25,
+
+    AAVE_TO_USDT: 40.0
+
+};
+
+
+/*
+Trading fee per hop.
+
+0.003 = 0.3%
+*/
+
+const SWAP_FEE = 0.003;
+
+
+/*
+Example gas estimate.
+*/
+
+const GAS_USDT = 0.05;
+
+
+/*
+==================================================
+GET HTML ELEMENTS
+==================================================
+*/
+
+const amountInput =
+    document.getElementById("startAmount");
+
+const scanButton =
+    document.getElementById("scanButton");
+
+const status =
+    document.getElementById("status");
+
+const resultsBody =
+    document.getElementById("resultsBody");
+
+const startingResult =
+    document.getElementById("startingResult");
+
+const finalResult =
+    document.getElementById("finalResult");
+
+const grossResult =
+    document.getElementById("grossResult");
+
+const gasResult =
+    document.getElementById("gasResult");
+
+const netResult =
+    document.getElementById("netResult");
+
+
+/*
+==================================================
+CHECK ELEMENTS
+==================================================
+*/
+
+if (!amountInput) {
+
+    console.error(
+        "ERROR: #startAmount was not found."
+    );
+
+}
+
+
+/*
+==================================================
+SCAN FUNCTION
+==================================================
+*/
+
+function scan() {
+
+    /*
+    Prevent the null.value error.
+    */
+
+    if (!amountInput) {
+
+        status.textContent =
+            "Error: Starting USDT input was not found.";
+
+        return;
+
+    }
+
+
+    /*
+    Read starting amount.
+    */
+
+    const start =
+        Number(amountInput.value);
+
+
+    /*
+    Validate.
+    */
+
+    if (!Number.isFinite(start) || start <= 0) {
+
+        status.textContent =
+            "Enter a valid USDT amount.";
+
+        return;
+
+    }
+
+
+    /*
+    Start calculation.
+    */
+
+    let amount = start;
+
+
+    /*
+    Clear previous results.
+    */
+
+    resultsBody.innerHTML = "";
+
+
+    /*
+    ==============================================
+    HOP 1
+    USDT → LINK
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.USDT_TO_LINK *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "USDT → LINK",
+        RATES.USDT_TO_LINK,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    HOP 2
+    LINK → AAVE
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.LINK_TO_AAVE *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "LINK → AAVE",
+        RATES.LINK_TO_AAVE,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    HOP 3
+    AAVE → USDT
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.AAVE_TO_USDT *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "AAVE → USDT",
+        RATES.AAVE_TO_USDT,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    PROFIT
+    ==============================================
+    */
+
+    const gross =
+        amount - start;
+
+
+    const net =
+        gross - GAS_USDT;
+
+
+    /*
+    Display results.
+    */
+
+    startingResult.textContent =
+        start.toFixed(6);
+
+    finalResult.textContent =
+        amount.toFixed(6);
+
+    grossResult.textContent =
+        gross.toFixed(6);
+
+    gasResult.textContent =
+        GAS_USDT.toFixed(6);
+
+    netResult.textContent =
+        net.toFixed(6);
+
+
+    /*
+    Profit styling.
+    */
+
+    netResult.className =
+        net > 0
+            ? "green"
+            : "red";
+
+
+    /*
+    Status.
+    */
+
+    if (net > 0) {
+
+        status.textContent =
+            "Potential opportunity detected.";
+
+    } else {
+
+        status.textContent =
+            "No profitable opportunity.";
+
+    }
+
+}
+
+
+/*
+==================================================
+ADD TABLE ROW
+==================================================
+*/
+
+function addRow(route, rate, amount) {
+
+    const row =
+        document.createElement("tr");
+
+
+    const hopCell =
+        document.createElement("td");
+
+    const rateCell =
+        document.createElement("td");
+
+    const amountCell =
+        document.createElement("td");
+
+
+    hopCell.textContent =
+        route;
+
+    rateCell.textContent =
+        rate;
+
+    amountCell.textContent =
+        amount.toFixed(8);
+
+
+    row.appendChild(hopCell);
+
+    row.appendChild(rateCell);
+
+    row.appendChild(amountCell);
+
+
+    resultsBody.appendChild(row);
+
+}
+
+
+/*
+==================================================
+BUTTON
+==================================================
+*/
+
+if (scanButton) {
+
+    scanButton.addEventListener(
+        "click",
+        scan
+    );
+
+}
+
+</script>
+
+</body>
+                </html><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Polygon Multi-Hop Scanner</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #0b0f17;
+    color: white;
+}
+
+.container {
+    max-width: 850px;
+    margin: auto;
+    padding: 25px;
+}
+
+.card {
+    background: #141b26;
+    padding: 20px;
+    margin-bottom: 18px;
+    border-radius: 14px;
+}
+
+h1 {
+    color: #4f8cff;
+}
+
+input {
+    width: 100%;
+    padding: 12px;
+    box-sizing: border-box;
+    background: #0b0f17;
+    border: 1px solid #39465a;
+    color: white;
+    border-radius: 8px;
+    margin: 10px 0;
+}
+
+button {
+    width: 100%;
+    padding: 13px;
+    border: 0;
+    border-radius: 8px;
+    background: #4f8cff;
+    color: white;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    opacity: 0.85;
+}
+
+.route {
+    text-align: center;
+    font-size: 20px;
+    padding: 15px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    padding: 12px;
+    border-bottom: 1px solid #303b4d;
+}
+
+.green {
+    color: #35d07f;
+}
+
+.red {
+    color: #ff6565;
+}
+
+.gray {
+    color: #9aa4b2;
+}
+
+#status {
+    margin-top: 15px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Polygon Multi-Hop Scanner</h1>
+
+<div class="card">
+
+<h3>Route</h3>
+
+<div class="route">
+    USDT → LINK → AAVE → USDT
+</div>
+
+<label for="startAmount">
+    Starting USDT
+</label>
+
+<input
+    id="startAmount"
+    type="number"
+    value="100"
+    min="0.01"
+    step="0.01"
+>
+
+<button id="scanButton">
+    Check Opportunity
+</button>
+
+<div id="status" class="gray">
+    Ready.
+</div>
+
+</div>
+
+
+<div class="card">
+
+<h2>Route Results</h2>
+
+<table>
+
+<thead>
+<tr>
+    <th>Hop</th>
+    <th>Rate</th>
+    <th>Amount</th>
+</tr>
+</thead>
+
+<tbody id="resultsBody"></tbody>
+
+</table>
+
+</div>
+
+
+<div class="card">
+
+<h2>Result</h2>
+
+<p>
+Starting:
+<strong id="startingResult">-</strong> USDT
+</p>
+
+<p>
+Final:
+<strong id="finalResult">-</strong> USDT
+</p>
+
+<p>
+Gross:
+<strong id="grossResult">-</strong> USDT
+</p>
+
+<p>
+Gas:
+<strong id="gasResult">-</strong> USDT
+</p>
+
+<p>
+Net:
+<strong id="netResult">-</strong> USDT
+</p>
+
+</div>
+
+</div>
+
+
+<script>
+
+/*
+==================================================
+DEMO RATES
+==================================================
+
+These are example rates only.
+
+They are NOT live DEX prices.
+
+Later we can replace these with live
+Polygon DEX quotes.
+*/
+
+const RATES = {
+
+    USDT_TO_LINK: 0.10,
+
+    LINK_TO_AAVE: 0.25,
+
+    AAVE_TO_USDT: 40.0
+
+};
+
+
+/*
+Trading fee per hop.
+
+0.003 = 0.3%
+*/
+
+const SWAP_FEE = 0.003;
+
+
+/*
+Example gas estimate.
+*/
+
+const GAS_USDT = 0.05;
+
+
+/*
+==================================================
+GET HTML ELEMENTS
+==================================================
+*/
+
+const amountInput =
+    document.getElementById("startAmount");
+
+const scanButton =
+    document.getElementById("scanButton");
+
+const status =
+    document.getElementById("status");
+
+const resultsBody =
+    document.getElementById("resultsBody");
+
+const startingResult =
+    document.getElementById("startingResult");
+
+const finalResult =
+    document.getElementById("finalResult");
+
+const grossResult =
+    document.getElementById("grossResult");
+
+const gasResult =
+    document.getElementById("gasResult");
+
+const netResult =
+    document.getElementById("netResult");
+
+
+/*
+==================================================
+CHECK ELEMENTS
+==================================================
+*/
+
+if (!amountInput) {
+
+    console.error(
+        "ERROR: #startAmount was not found."
+    );
+
+}
+
+
+/*
+==================================================
+SCAN FUNCTION
+==================================================
+*/
+
+function scan() {
+
+    /*
+    Prevent the null.value error.
+    */
+
+    if (!amountInput) {
+
+        status.textContent =
+            "Error: Starting USDT input was not found.";
+
+        return;
+
+    }
+
+
+    /*
+    Read starting amount.
+    */
+
+    const start =
+        Number(amountInput.value);
+
+
+    /*
+    Validate.
+    */
+
+    if (!Number.isFinite(start) || start <= 0) {
+
+        status.textContent =
+            "Enter a valid USDT amount.";
+
+        return;
+
+    }
+
+
+    /*
+    Start calculation.
+    */
+
+    let amount = start;
+
+
+    /*
+    Clear previous results.
+    */
+
+    resultsBody.innerHTML = "";
+
+
+    /*
+    ==============================================
+    HOP 1
+    USDT → LINK
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.USDT_TO_LINK *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "USDT → LINK",
+        RATES.USDT_TO_LINK,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    HOP 2
+    LINK → AAVE
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.LINK_TO_AAVE *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "LINK → AAVE",
+        RATES.LINK_TO_AAVE,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    HOP 3
+    AAVE → USDT
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.AAVE_TO_USDT *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "AAVE → USDT",
+        RATES.AAVE_TO_USDT,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    PROFIT
+    ==============================================
+    */
+
+    const gross =
+        amount - start;
+
+
+    const net =
+        gross - GAS_USDT;
+
+
+    /*
+    Display results.
+    */
+
+    startingResult.textContent =
+        start.toFixed(6);
+
+    finalResult.textContent =
+        amount.toFixed(6);
+
+    grossResult.textContent =
+        gross.toFixed(6);
+
+    gasResult.textContent =
+        GAS_USDT.toFixed(6);
+
+    netResult.textContent =
+        net.toFixed(6);
+
+
+    /*
+    Profit styling.
+    */
+
+    netResult.className =
+        net > 0
+            ? "green"
+            : "red";
+
+
+    /*
+    Status.
+    */
+
+    if (net > 0) {
+
+        status.textContent =
+            "Potential opportunity detected.";
+
+    } else {
+
+        status.textContent =
+            "No profitable opportunity.";
+
+    }
+
+}
+
+
+/*
+==================================================
+ADD TABLE ROW
+==================================================
+*/
+
+function addRow(route, rate, amount) {
+
+    const row =
+        document.createElement("tr");
+
+
+    const hopCell =
+        document.createElement("td");
+
+    const rateCell =
+        document.createElement("td");
+
+    const amountCell =
+        document.createElement("td");
+
+
+    hopCell.textContent =
+        route;
+
+    rateCell.textContent =
+        rate;
+
+    amountCell.textContent =
+        amount.toFixed(8);
+
+
+    row.appendChild(hopCell);
+
+    row.appendChild(rateCell);
+
+    row.appendChild(amountCell);
+
+
+    resultsBody.appendChild(row);
+
+}
+
+
+/*
+==================================================
+BUTTON
+==================================================
+*/
+
+if (scanButton) {
+
+    scanButton.addEventListener(
+        "click",
+        scan
+    );
+
+}
+
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Polygon Multi-Hop Scanner</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #0b0f17;
+    color: white;
+}
+
+.container {
+    max-width: 850px;
+    margin: auto;
+    padding: 25px;
+}
+
+.card {
+    background: #141b26;
+    padding: 20px;
+    margin-bottom: 18px;
+    border-radius: 14px;
+}
+
+h1 {
+    color: #4f8cff;
+}
+
+input {
+    width: 100%;
+    padding: 12px;
+    box-sizing: border-box;
+    background: #0b0f17;
+    border: 1px solid #39465a;
+    color: white;
+    border-radius: 8px;
+    margin: 10px 0;
+}
+
+button {
+    width: 100%;
+    padding: 13px;
+    border: 0;
+    border-radius: 8px;
+    background: #4f8cff;
+    color: white;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    opacity: 0.85;
+}
+
+.route {
+    text-align: center;
+    font-size: 20px;
+    padding: 15px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    padding: 12px;
+    border-bottom: 1px solid #303b4d;
+}
+
+.green {
+    color: #35d07f;
+}
+
+.red {
+    color: #ff6565;
+}
+
+.gray {
+    color: #9aa4b2;
+}
+
+#status {
+    margin-top: 15px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Polygon Multi-Hop Scanner</h1>
+
+<div class="card">
+
+<h3>Route</h3>
+
+<div class="route">
+    USDT → LINK → AAVE → USDT
+</div>
+
+<label for="startAmount">
+    Starting USDT
+</label>
+
+<input
+    id="startAmount"
+    type="number"
+    value="100"
+    min="0.01"
+    step="0.01"
+>
+
+<button id="scanButton">
+    Check Opportunity
+</button>
+
+<div id="status" class="gray">
+    Ready.
+</div>
+
+</div>
+
+
+<div class="card">
+
+<h2>Route Results</h2>
+
+<table>
+
+<thead>
+<tr>
+    <th>Hop</th>
+    <th>Rate</th>
+    <th>Amount</th>
+</tr>
+</thead>
+
+<tbody id="resultsBody"></tbody>
+
+</table>
+
+</div>
+
+
+<div class="card">
+
+<h2>Result</h2>
+
+<p>
+Starting:
+<strong id="startingResult">-</strong> USDT
+</p>
+
+<p>
+Final:
+<strong id="finalResult">-</strong> USDT
+</p>
+
+<p>
+Gross:
+<strong id="grossResult">-</strong> USDT
+</p>
+
+<p>
+Gas:
+<strong id="gasResult">-</strong> USDT
+</p>
+
+<p>
+Net:
+<strong id="netResult">-</strong> USDT
+</p>
+
+</div>
+
+</div>
+
+
+<script>
+
+/*
+==================================================
+DEMO RATES
+==================================================
+
+These are example rates only.
+
+They are NOT live DEX prices.
+
+Later we can replace these with live
+Polygon DEX quotes.
+*/
+
+const RATES = {
+
+    USDT_TO_LINK: 0.10,
+
+    LINK_TO_AAVE: 0.25,
+
+    AAVE_TO_USDT: 40.0
+
+};
+
+
+/*
+Trading fee per hop.
+
+0.003 = 0.3%
+*/
+
+const SWAP_FEE = 0.003;
+
+
+/*
+Example gas estimate.
+*/
+
+const GAS_USDT = 0.05;
+
+
+/*
+==================================================
+GET HTML ELEMENTS
+==================================================
+*/
+
+const amountInput =
+    document.getElementById("startAmount");
+
+const scanButton =
+    document.getElementById("scanButton");
+
+const status =
+    document.getElementById("status");
+
+const resultsBody =
+    document.getElementById("resultsBody");
+
+const startingResult =
+    document.getElementById("startingResult");
+
+const finalResult =
+    document.getElementById("finalResult");
+
+const grossResult =
+    document.getElementById("grossResult");
+
+const gasResult =
+    document.getElementById("gasResult");
+
+const netResult =
+    document.getElementById("netResult");
+
+
+/*
+==================================================
+CHECK ELEMENTS
+==================================================
+*/
+
+if (!amountInput) {
+
+    console.error(
+        "ERROR: #startAmount was not found."
+    );
+
+}
+
+
+/*
+==================================================
+SCAN FUNCTION
+==================================================
+*/
+
+function scan() {
+
+    /*
+    Prevent the null.value error.
+    */
+
+    if (!amountInput) {
+
+        status.textContent =
+            "Error: Starting USDT input was not found.";
+
+        return;
+
+    }
+
+
+    /*
+    Read starting amount.
+    */
+
+    const start =
+        Number(amountInput.value);
+
+
+    /*
+    Validate.
+    */
+
+    if (!Number.isFinite(start) || start <= 0) {
+
+        status.textContent =
+            "Enter a valid USDT amount.";
+
+        return;
+
+    }
+
+
+    /*
+    Start calculation.
+    */
+
+    let amount = start;
+
+
+    /*
+    Clear previous results.
+    */
+
+    resultsBody.innerHTML = "";
+
+
+    /*
+    ==============================================
+    HOP 1
+    USDT → LINK
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.USDT_TO_LINK *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "USDT → LINK",
+        RATES.USDT_TO_LINK,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    HOP 2
+    LINK → AAVE
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.LINK_TO_AAVE *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "LINK → AAVE",
+        RATES.LINK_TO_AAVE,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    HOP 3
+    AAVE → USDT
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.AAVE_TO_USDT *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "AAVE → USDT",
+        RATES.AAVE_TO_USDT,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    PROFIT
+    ==============================================
+    */
+
+    const gross =
+        amount - start;
+
+
+    const net =
+        gross - GAS_USDT;
+
+
+    /*
+    Display results.
+    */
+
+    startingResult.textContent =
+        start.toFixed(6);
+
+    finalResult.textContent =
+        amount.toFixed(6);
+
+    grossResult.textContent =
+        gross.toFixed(6);
+
+    gasResult.textContent =
+        GAS_USDT.toFixed(6);
+
+    netResult.textContent =
+        net.toFixed(6);
+
+
+    /*
+    Profit styling.
+    */
+
+    netResult.className =
+        net > 0
+            ? "green"
+            : "red";
+
+
+    /*
+    Status.
+    */
+
+    if (net > 0) {
+
+        status.textContent =
+            "Potential opportunity detected.";
+
+    } else {
+
+        status.textContent =
+            "No profitable opportunity.";
+
+    }
+
+}
+
+
+/*
+==================================================
+ADD TABLE ROW
+==================================================
+*/
+
+function addRow(route, rate, amount) {
+
+    const row =
+        document.createElement("tr");
+
+
+    const hopCell =
+        document.createElement("td");
+
+    const rateCell =
+        document.createElement("td");
+
+    const amountCell =
+        document.createElement("td");
+
+
+    hopCell.textContent =
+        route;
+
+    rateCell.textContent =
+        rate;
+
+    amountCell.textContent =
+        amount.toFixed(8);
+
+
+    row.appendChild(hopCell);
+
+    row.appendChild(rateCell);
+
+    row.appendChild(amountCell);
+
+
+    resultsBody.appendChild(row);
+
+}
+
+
+/*
+==================================================
+BUTTON
+==================================================
+*/
+
+if (scanButton) {
+
+    scanButton.addEventListener(
+        "click",
+        scan
+    );
+
+}
+
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Polygon Multi-Hop Scanner</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #0b0f17;
+    color: white;
+}
+
+.container {
+    max-width: 850px;
+    margin: auto;
+    padding: 25px;
+}
+
+.card {
+    background: #141b26;
+    padding: 20px;
+    margin-bottom: 18px;
+    border-radius: 14px;
+}
+
+h1 {
+    color: #4f8cff;
+}
+
+input {
+    width: 100%;
+    padding: 12px;
+    box-sizing: border-box;
+    background: #0b0f17;
+    border: 1px solid #39465a;
+    color: white;
+    border-radius: 8px;
+    margin: 10px 0;
+}
+
+button {
+    width: 100%;
+    padding: 13px;
+    border: 0;
+    border-radius: 8px;
+    background: #4f8cff;
+    color: white;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    opacity: 0.85;
+}
+
+.route {
+    text-align: center;
+    font-size: 20px;
+    padding: 15px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    padding: 12px;
+    border-bottom: 1px solid #303b4d;
+}
+
+.green {
+    color: #35d07f;
+}
+
+.red {
+    color: #ff6565;
+}
+
+.gray {
+    color: #9aa4b2;
+}
+
+#status {
+    margin-top: 15px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Polygon Multi-Hop Scanner</h1>
+
+<div class="card">
+
+<h3>Route</h3>
+
+<div class="route">
+    USDT → LINK → AAVE → USDT
+</div>
+
+<label for="startAmount">
+    Starting USDT
+</label>
+
+<input
+    id="startAmount"
+    type="number"
+    value="100"
+    min="0.01"
+    step="0.01"
+>
+
+<button id="scanButton">
+    Check Opportunity
+</button>
+
+<div id="status" class="gray">
+    Ready.
+</div>
+
+</div>
+
+
+<div class="card">
+
+<h2>Route Results</h2>
+
+<table>
+
+<thead>
+<tr>
+    <th>Hop</th>
+    <th>Rate</th>
+    <th>Amount</th>
+</tr>
+</thead>
+
+<tbody id="resultsBody"></tbody>
+
+</table>
+
+</div>
+
+
+<div class="card">
+
+<h2>Result</h2>
+
+<p>
+Starting:
+<strong id="startingResult">-</strong> USDT
+</p>
+
+<p>
+Final:
+<strong id="finalResult">-</strong> USDT
+</p>
+
+<p>
+Gross:
+<strong id="grossResult">-</strong> USDT
+</p>
+
+<p>
+Gas:
+<strong id="gasResult">-</strong> USDT
+</p>
+
+<p>
+Net:
+<strong id="netResult">-</strong> USDT
+</p>
+
+</div>
+
+</div>
+
+
+<script>
+
+/*
+==================================================
+DEMO RATES
+==================================================
+
+These are example rates only.
+
+They are NOT live DEX prices.
+
+Later we can replace these with live
+Polygon DEX quotes.
+*/
+
+const RATES = {
+
+    USDT_TO_LINK: 0.10,
+
+    LINK_TO_AAVE: 0.25,
+
+    AAVE_TO_USDT: 40.0
+
+};
+
+
+/*
+Trading fee per hop.
+
+0.003 = 0.3%
+*/
+
+const SWAP_FEE = 0.003;
+
+
+/*
+Example gas estimate.
+*/
+
+const GAS_USDT = 0.05;
+
+
+/*
+==================================================
+GET HTML ELEMENTS
+==================================================
+*/
+
+const amountInput =
+    document.getElementById("startAmount");
+
+const scanButton =
+    document.getElementById("scanButton");
+
+const status =
+    document.getElementById("status");
+
+const resultsBody =
+    document.getElementById("resultsBody");
+
+const startingResult =
+    document.getElementById("startingResult");
+
+const finalResult =
+    document.getElementById("finalResult");
+
+const grossResult =
+    document.getElementById("grossResult");
+
+const gasResult =
+    document.getElementById("gasResult");
+
+const netResult =
+    document.getElementById("netResult");
+
+
+/*
+==================================================
+CHECK ELEMENTS
+==================================================
+*/
+
+if (!amountInput) {
+
+    console.error(
+        "ERROR: #startAmount was not found."
+    );
+
+}
+
+
+/*
+==================================================
+SCAN FUNCTION
+==================================================
+*/
+
+function scan() {
+
+    /*
+    Prevent the null.value error.
+    */
+
+    if (!amountInput) {
+
+        status.textContent =
+            "Error: Starting USDT input was not found.";
+
+        return;
+
+    }
+
+
+    /*
+    Read starting amount.
+    */
+
+    const start =
+        Number(amountInput.value);
+
+
+    /*
+    Validate.
+    */
+
+    if (!Number.isFinite(start) || start <= 0) {
+
+        status.textContent =
+            "Enter a valid USDT amount.";
+
+        return;
+
+    }
+
+
+    /*
+    Start calculation.
+    */
+
+    let amount = start;
+
+
+    /*
+    Clear previous results.
+    */
+
+    resultsBody.innerHTML = "";
+
+
+    /*
+    ==============================================
+    HOP 1
+    USDT → LINK
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.USDT_TO_LINK *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "USDT → LINK",
+        RATES.USDT_TO_LINK,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    HOP 2
+    LINK → AAVE
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.LINK_TO_AAVE *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "LINK → AAVE",
+        RATES.LINK_TO_AAVE,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    HOP 3
+    AAVE → USDT
+    ==============================================
+    */
+
+    amount =
+        amount *
+        RATES.AAVE_TO_USDT *
+        (1 - SWAP_FEE);
+
+
+    addRow(
+        "AAVE → USDT",
+        RATES.AAVE_TO_USDT,
+        amount
+    );
+
+
+    /*
+    ==============================================
+    PROFIT
+    ==============================================
+    */
+
+    const gross =
+        amount - start;
+
+
+    const net =
+        gross - GAS_USDT;
+
+
+    /*
+    Display results.
+    */
+
+    startingResult.textContent =
+        start.toFixed(6);
+
+    finalResult.textContent =
+        amount.toFixed(6);
+
+    grossResult.textContent =
+        gross.toFixed(6);
+
+    gasResult.textContent =
+        GAS_USDT.toFixed(6);
+
+    netResult.textContent =
+        net.toFixed(6);
+
+
+    /*
+    Profit styling.
+    */
+
+    netResult.className =
+        net > 0
+            ? "green"
+            : "red";
+
+
+    /*
+    Status.
+    */
+
+    if (net > 0) {
+
+        status.textContent =
+            "Potential opportunity detected.";
+
+    } else {
+
+        status.textContent =
+            "No profitable opportunity.";
+
+    }
+
+}
+
+
+/*
+==================================================
+ADD TABLE ROW
+==================================================
+*/
+
+function addRow(route, rate, amount) {
+
+    const row =
+        document.createElement("tr");
+
+
+    const hopCell =
+        document.createElement("td");
+
+    const rateCell =
+        document.createElement("td");
+
+    const amountCell =
+        document.createElement("td");
+
+
+    hopCell.textContent =
+        route;
+
+    rateCell.textContent =
+        rate;
+
+    amountCell.textContent =
+        amount.toFixed(8);
+
+
+    row.appendChild(hopCell);
+
+    row.appendChild(rateCell);
+
+    row.appendChild(amountCell);
+
+
+    resultsBody.appendChild(row);
+
+}
+
+
+/*
+==================================================
+BUTTON
+==================================================
+*/
+
+if (scanButton) {
+
+    scanButton.addEventListener(
+        "click",
+        scan
+    );
+
+}
+
+</script>
+
+</body>
+</html>
